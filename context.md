@@ -20,7 +20,7 @@ Initial playbook: suspicious IP investigation. Planned integrations: authenticat
 | --- | --- | --- |
 | 1. Repository and infrastructure initialization | Verified with one test-environment blocker | Git, Graphify skill, dependencies, Docker Compose configuration, and frontend build were verified. The FastAPI `TestClient` health test hangs with the installed FastAPI/Starlette/HTTPX combination; direct health-handler verification passes. |
 | 2. Alert ingestion and incident persistence | Implemented; PostgreSQL verification pending | Models, migration, authenticated ingestion/retrieval routes, deduplication, and tests are present. Test initialization now resets only the disposable test schema and applies Alembic through the same connection; sandbox loopback access prevents the final live run. |
-| 3. Investigation workflow and intelligence enrichment | Planned | Not implemented. |
+| 3. Investigation workflow and intelligence enrichment | In progress | Task 3A investigation persistence is implemented; external enrichment and worker execution are not implemented. PostgreSQL verification remains pending. |
 | 4. Approval and controlled laboratory response | Planned | Not implemented. |
 | 5. React incident-response console | Planned | Not implemented. |
 | 6. End-to-end testing and local deployment | Planned | Not implemented. |
@@ -38,3 +38,7 @@ PostgreSQL test initialization fix (2026-10-21): a prior test run could leave `a
 Verification: `pytest` reports `6 passed, 2 skipped` without `TEST_DATABASE_URL`; Alembic offline SQL generation verified both tables, JSONB storage, indexes, and the unique source/event constraint. A live integration run was attempted against `127.0.0.1:55432`, but the sandbox's network isolation returned `psycopg.OperationalError: connection is bad: no error details available`, so live database verification remains pending. Docker Compose configuration validates and the frontend build passes. Graphify was updated after the code change. No claim of end-to-end completion is made until the disposable PostgreSQL test database is exercised.
 
 Next actionable task: run the documented disposable PostgreSQL integration test and acceptance flow, then proceed to suspicious-IP investigation and intelligence enrichment. No playbook execution, external enrichment, approvals, containment, or frontend workflow UI has been implemented.
+
+Task 3A (2026-10-21): added persistent `InvestigationExecution` and `InvestigationEvidence` records, including retry scheduling, worker-lease, timestamps, and redacted-error fields. Migration `20261021_0002` preserves alerts and incidents. Authenticated analyst endpoints now list and retrieve investigations; details include evidence and both views include associated incident IDs. No investigation is automatically created and no worker or external API behavior exists.
+
+Verification: model/schema tests and existing non-PostgreSQL tests pass (`7 passed`). Four PostgreSQL integration tests are skipped without `TEST_DATABASE_URL`, including the new investigation read/authorization coverage. Alembic offline SQL renders both new tables and their constraints. Graphify was updated. Task 3B must wait for live disposable-PostgreSQL verification of this migration and endpoint suite.
