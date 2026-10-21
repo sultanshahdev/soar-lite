@@ -19,7 +19,7 @@ Initial playbook: suspicious IP investigation. Planned integrations: authenticat
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | 1. Repository and infrastructure initialization | Verified with one test-environment blocker | Git, Graphify skill, dependencies, Docker Compose configuration, and frontend build were verified. The FastAPI `TestClient` health test hangs with the installed FastAPI/Starlette/HTTPX combination; direct health-handler verification passes. |
-| 2. Alert ingestion and incident persistence | Planned | Not implemented. |
+| 2. Alert ingestion and incident persistence | Implemented; PostgreSQL verification pending | Models, migration, authenticated ingestion/retrieval routes, deduplication, and tests are present. Test initialization now resets only the disposable test schema and applies Alembic through the same connection; sandbox loopback access prevents the final live run. |
 | 3. Investigation workflow and intelligence enrichment | Planned | Not implemented. |
 | 4. Approval and controlled laboratory response | Planned | Not implemented. |
 | 5. React incident-response console | Planned | Not implemented. |
@@ -31,4 +31,10 @@ Most recent verified progress (2026-10-21): Git is initialized on `main` but has
 
 Health verification: calling `health_check()` returns `{"status": "ok", "service": "soar-lite"}`. The existing `pytest` test starts but hangs at `TestClient.get()`; a ten-second direct `TestClient` probe timed out. Installed versions were FastAPI 0.158.0, Starlette 1.9.0, and HTTPX 0.28.1, and Starlette emits a deprecation warning indicating that its test client expects `httpx2`. This must be resolved before considering the backend test suite fully verified.
 
-Next actionable task: summarize this state, resolve the test-client dependency compatibility without broad dependency changes, then begin authenticated alert ingestion and incident persistence. No SOAR business logic has been implemented.
+Most recent implementation (2026-10-21): generic webhook ingestion now validates event IDs, event types, severity, timezone-aware timestamps, and IP addresses; it persists the original payload as JSONB, atomically creates a `new` incident, and handles duplicate `(source, source_event_id)` submissions through a database constraint. Read APIs use a separate `X-API-Key` analyst credential. `WEBHOOK_SECRET` and `ANALYST_API_KEY` fail closed when missing or placeholders. The initial relationship is many-alerts-to-one-incident at the schema level, although this milestone creates one incident per alert.
+
+PostgreSQL test initialization fix (2026-10-21): a prior test run could leave `alembic_version` at the latest revision after `Base.metadata.drop_all()` removed the tables. Alembic then correctly skipped the migration while the test client queried missing tables, producing `UndefinedTable: alerts`. The fixture now requires a URL containing `soar_lite_test`, resets only that database's `public` schema, and invokes `alembic upgrade head` with the exact same SQLAlchemy connection supplied to test sessions. Alembic's environment now honors `DATABASE_URL` for normal runs and an explicit Alembic connection for tests.
+
+Verification: `pytest` reports `6 passed, 2 skipped` without `TEST_DATABASE_URL`; Alembic offline SQL generation verified both tables, JSONB storage, indexes, and the unique source/event constraint. A live integration run was attempted against `127.0.0.1:55432`, but the sandbox's network isolation returned `psycopg.OperationalError: connection is bad: no error details available`, so live database verification remains pending. Docker Compose configuration validates and the frontend build passes. Graphify was updated after the code change. No claim of end-to-end completion is made until the disposable PostgreSQL test database is exercised.
+
+Next actionable task: run the documented disposable PostgreSQL integration test and acceptance flow, then proceed to suspicious-IP investigation and intelligence enrichment. No playbook execution, external enrichment, approvals, containment, or frontend workflow UI has been implemented.

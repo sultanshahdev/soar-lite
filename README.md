@@ -4,7 +4,7 @@ Local-first Security Orchestration, Automation and Response (SOAR) MVP for a two
 
 ## MVP scope
 
-The planned demonstration is: Alert → Incident → Playbook → Threat Intelligence → Analyst Approval → Lab Response → Audit Log. This repository currently contains only the foundation: a health endpoint, an idle worker process, database/migration wiring, and a static analyst-console shell. No security operations, external calls, or containment are implemented.
+The planned demonstration is: Alert → Incident → Playbook → Threat Intelligence → Analyst Approval → Lab Response → Audit Log. The current backend implements authenticated generic alert ingestion, PostgreSQL persistence, one automatic incident per accepted alert, deduplication, and authenticated read endpoints. Playbooks, intelligence, approvals, containment, and frontend operations remain unimplemented.
 
 ## Stack and architecture
 
@@ -37,6 +37,23 @@ cd frontend && npm run dev
 
 The liveness endpoint is `http://127.0.0.1:8000/api/v1/health`. To run the stack when Docker is available: `docker compose --env-file .env -f infra/compose.yaml up --build`.
 
+The backend runs Alembic migrations before starting. To run them manually:
+
+```bash
+cd backend && uv run alembic upgrade head
+```
+
+Configure non-placeholder `WEBHOOK_SECRET` and `ANALYST_API_KEY` in your untracked `.env`, then submit an alert:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/ingest/generic \
+  -H "Authorization: Bearer $WEBHOOK_SECRET" \
+  -H "Content-Type: application/json" \
+  --data '{"event_id":"test-alert-001","event_type":"suspicious_login","severity":"high","observed_at":"2026-10-21T16:00:00Z","source_ip":"198.51.100.23","destination_host":"lab-server-01","rule":"Repeated failed login attempts","metadata":{"failed_attempts":12}}'
+
+curl -H "X-API-Key: $ANALYST_API_KEY" http://127.0.0.1:8000/api/v1/incidents
+```
+
 ## Verification
 
 ```bash
@@ -56,7 +73,7 @@ graphify query "How are alerts processed?"
 
 ## Upcoming milestones
 
-1. Authenticated alert ingestion and incident persistence.
+1. Verify ingestion against local PostgreSQL and complete the acceptance demonstration.
 2. Suspicious-IP investigation and intelligence enrichment.
 3. Analyst approval, controlled lab response, and audit trails.
 4. Incident-response console and end-to-end verification.

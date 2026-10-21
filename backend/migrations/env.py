@@ -1,11 +1,15 @@
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+import os
 
-from app.config import get_settings
+from sqlalchemy import Connection, engine_from_config, pool
+
 from app.persistence.database import Base
+from app.persistence import models  # noqa: F401 -- register model metadata
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Environment configuration overrides alembic.ini for normal application runs.
+# Tests pass an explicit connection via Config.attributes, which takes precedence.
+config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url")))
 target_metadata = Base.metadata
 
 
@@ -16,6 +20,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    connection = config.attributes.get("connection")
+    if isinstance(connection, Connection):
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
