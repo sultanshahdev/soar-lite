@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,7 @@ class Incident(Base):
 
     alerts: Mapped[list["Alert"]] = relationship(back_populates="incident")
     investigations: Mapped[list["InvestigationExecution"]] = relationship(back_populates="incident")
+    response_actions: Mapped[list["ResponseAction"]] = relationship(back_populates="incident")
 
 
 class Alert(Base):
@@ -88,6 +89,7 @@ class InvestigationExecution(Base):
 
     incident: Mapped[Incident] = relationship(back_populates="investigations")
     evidence: Mapped[list["InvestigationEvidence"]] = relationship(back_populates="investigation")
+    response_actions: Mapped[list["ResponseAction"]] = relationship(back_populates="investigation")
 
 
 class InvestigationEvidence(Base):
@@ -101,3 +103,62 @@ class InvestigationEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     investigation: Mapped[InvestigationExecution] = relationship(back_populates="evidence")
+
+
+class ResponseAction(Base):
+    """An analyst-controlled containment proposal; execution is deliberately separate."""
+
+    __tablename__ = "response_actions"
+    __table_args__ = (
+        CheckConstraint("action_type IN ('block_ip')", name="ck_response_actions_type"),
+        CheckConstraint(
+            "status IN ('proposed', 'approved', 'executing', 'executed', 'rejected', 'failed', 'reverted')",
+            name="ck_response_actions_status",
+        ),
+        Index("ix_response_actions_incident_created", "incident_id", "created_at"),
+        Index("ix_response_actions_status_created", "status", "created_at"),
+        Index(
+            "uq_response_actions_active_target",
+            "incident_id",
+            "action_type",
+            "target_ip",
+            unique=True,
+            postgresql_where=text("status IN ('proposed', 'approved', 'executing')"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    incident_id: Mapped[UUID] = mapped_column(ForeignKey("incidents.id", ondelete="RESTRICT"), nullable=False)
+    investigation_id: Mapped[UUID | None] = mapped_column(ForeignKey("investigation_executions.id", ondelete="RESTRICT"), nullable=True)
+    action_type: Mapped[str] = mapped_column(String(32), nullable=False, default="block_ip")
+    target_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="proposed")
+    proposed_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_result: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    execution_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    incident: Mapped[Incident] = relationship(back_populates="response_actions")
+    investigation: Mapped[InvestigationExecution | None] = relationship(back_populates="response_actions")
+    audit_events: Mapped[list["ResponseAuditEvent"]] = relationship(back_populates="response_action")
+
+
+class ResponseAuditEvent(Base):
+    __tablename__ = "response_audit_events"
+    __table_args__ = (Index("ix_response_audit_action_created", "response_action_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    response_action_id: Mapped[UUID] = mapped_column(ForeignKey("response_actions.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    metadata_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    response_action: Mapped[ResponseAction] = relationship(back_populates="audit_events")
