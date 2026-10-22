@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
-from app.persistence.models import Alert, Incident
+from app.persistence.models import Alert, Incident, InvestigationExecution
 
 
 pytestmark = pytest.mark.integration
@@ -45,3 +45,11 @@ def test_rejects_bad_credentials_invalid_payload_and_missing_resources(api_clien
     assert api_client.get("/api/v1/alerts", headers={}).status_code == 401
     assert api_client.get(f"/api/v1/alerts/{uuid4()}", headers=analyst_headers).status_code == 404
     assert api_client.get(f"/api/v1/incidents/{uuid4()}", headers=analyst_headers).status_code == 404
+
+
+def test_eligible_alert_queues_one_investigation_and_duplicates_do_not(api_client, db_session, alert_payload, webhook_headers) -> None:
+    payload = {**alert_payload, "event_id": "global-source-alert", "source_ip": "8.8.8.8"}
+    assert api_client.post("/api/v1/ingest/generic", json=payload, headers=webhook_headers).status_code == 201
+    assert db_session.scalar(select(func.count()).select_from(InvestigationExecution)) == 1
+    assert api_client.post("/api/v1/ingest/generic", json=payload, headers=webhook_headers).status_code == 200
+    assert db_session.scalar(select(func.count()).select_from(InvestigationExecution)) == 1

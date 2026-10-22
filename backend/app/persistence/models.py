@@ -63,6 +63,7 @@ class Alert(Base):
 class InvestigationExecution(Base):
     __tablename__ = "investigation_executions"
     __table_args__ = (
+        UniqueConstraint("incident_id", "investigation_type", "source_ip", name="uq_investigations_incident_type_ip"),
         CheckConstraint("investigation_type IN ('suspicious_ip')", name="ck_investigations_type"),
         CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="ck_investigations_status"),
         CheckConstraint("attempt_count >= 0", name="ck_investigations_attempt_count"),
@@ -81,6 +82,7 @@ class InvestigationExecution(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(String(512), nullable=True)
 

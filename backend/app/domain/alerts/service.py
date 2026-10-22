@@ -1,18 +1,28 @@
-"""Transactional generic-alert ingestion."""
+"""Transactional generic-alert ingestion and supported investigation queueing."""
+
+import ipaddress
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.alerts.schemas import GenericAlertIn
-from app.persistence.models import Alert, Incident
+from app.persistence.models import Alert, Incident, InvestigationExecution
 from app.persistence.repositories.alerts import alert_by_source_event
 
 GENERIC_SOURCE = "generic"
+SUSPICIOUS_IP_EVENT_TYPES = {"suspicious_login"}
 
 
 def _incident_title(alert: GenericAlertIn) -> str:
     readable_type = alert.event_type.replace("_", " ").replace("-", " ").title()
     return f"{readable_type} — {alert.destination_host or 'unknown destination'}"
+
+
+def should_queue_suspicious_ip_investigation(payload: GenericAlertIn) -> bool:
+    """Queue only supported alert types with globally routable source addresses."""
+    if payload.event_type not in SUSPICIOUS_IP_EVENT_TYPES or payload.source_ip is None:
+        return False
+    return ipaddress.ip_address(payload.source_ip).is_global
 
 
 def ingest_generic_alert(session: Session, payload: GenericAlertIn) -> tuple[Alert, bool]:
@@ -42,6 +52,15 @@ def ingest_generic_alert(session: Session, payload: GenericAlertIn) -> tuple[Ale
             incident=incident,
         )
         session.add(alert)
+        if should_queue_suspicious_ip_investigation(payload):
+            session.add(
+                InvestigationExecution(
+                    incident=incident,
+                    investigation_type="suspicious_ip",
+                    status="queued",
+                    source_ip=payload.source_ip,
+                )
+            )
         session.commit()
         session.refresh(alert)
         return alert, False

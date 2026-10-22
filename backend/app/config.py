@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://soar:soar_local_dev_password@postgres:5432/soar_lite"
     webhook_secret: str = "replace-with-a-long-random-secret"
     analyst_api_key: str = "replace-with-a-long-random-analyst-key"
+    abuseipdb_api_key: str = ""
+    abuseipdb_timeout_seconds: float = 5.0
+    investigation_poll_seconds: float = 1.0
+    investigation_lease_seconds: int = 60
+    investigation_max_attempts: int = 3
+    investigation_retry_base_seconds: int = 30
     max_alert_payload_bytes: int = 65_536
 
 
