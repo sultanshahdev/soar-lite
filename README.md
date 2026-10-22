@@ -56,12 +56,36 @@ curl -H "X-API-Key: $ANALYST_API_KEY" http://127.0.0.1:8000/api/v1/incidents
 
 After an investigation is completed, an analyst can propose and approve its IP; the worker persists a simulated block. Use `GET /api/v1/lab/blocklist` to view the PostgreSQL-only lab state and `POST /api/v1/response-actions/{action_id}/revert` to release that action's block.
 
+## Reproducible demonstration
+
+1. Configure untracked `.env` values for `WEBHOOK_SECRET` and `ANALYST_API_KEY`; do not put either value in frontend files. Start the local stack:
+
+```bash
+docker compose --env-file .env -f infra/compose.yaml up -d --build
+```
+
+2. Submit the webhook shown above with a globally routable source IP, then open `http://127.0.0.1:5173` and enter the analyst key in the development-only connection panel. Inspect the created incident and completed investigation evidence.
+3. In **Response Actions**, choose the completed investigation, create the `block_ip` proposal, approve it, and wait for the worker to mark it `executed`. Inspect its persisted audit timeline and `Lab Blocklist` entry.
+4. Revert the executed action with an analyst reason. The action becomes `reverted` and its action-owned lab entry becomes inactive. This is simulated containment only: no host firewall, iptables/nftables/UFW, Docker networking, cloud security group, router, or production network is changed.
+
+The backend command applies migrations at startup. To apply them explicitly instead:
+
+```bash
+docker compose --env-file .env -f infra/compose.yaml run --rm backend alembic upgrade head
+```
+
 ## Verification
 
 ```bash
 cd backend && uv run pytest
 cd frontend && npm run build
 docker compose --env-file .env -f infra/compose.yaml config
+```
+
+The end-to-end acceptance test requires a deliberately disposable database URL containing `soar_lite_test`; never point it at the normal application database:
+
+```bash
+cd backend && TEST_DATABASE_URL=postgresql+psycopg://.../soar_lite_test uv run pytest -q tests/test_end_to_end_acceptance_postgres.py
 ```
 
 ## Graphify

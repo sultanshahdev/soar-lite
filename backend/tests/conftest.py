@@ -14,6 +14,19 @@ from app.main import app
 from app.persistence.database import get_db
 
 
+# Keep migrations intact while ensuring commits from API and independent worker
+# sessions cannot leak into another PostgreSQL integration test.
+APPLICATION_TABLES = (
+    "lab_block_entries",
+    "response_audit_events",
+    "response_actions",
+    "investigation_evidence",
+    "investigation_executions",
+    "alerts",
+    "incidents",
+)
+
+
 def reset_disposable_schema(engine) -> None:
     """Erase only the dedicated test schema, including stale Alembic metadata."""
     with engine.begin() as connection:
@@ -51,6 +64,25 @@ def db_session(test_engine) -> Generator[Session, None, None]:
     finally:
         session.rollback()
         session.close()
+
+
+@pytest.fixture(autouse=True)
+def isolate_postgres_integration_test(request) -> Generator[None, None, None]:
+    """Truncate only application data around marked integration tests.
+
+    ``test_engine`` is deliberately requested lazily so unit tests do not need
+    ``TEST_DATABASE_URL``.  ``alembic_version`` is intentionally excluded.
+    """
+    if "integration" not in request.node.keywords:
+        yield
+        return
+    engine = request.getfixturevalue("test_engine")
+    statement = text(f"TRUNCATE TABLE {', '.join(APPLICATION_TABLES)} RESTART IDENTITY CASCADE")
+    with engine.begin() as connection:
+        connection.execute(statement)
+    yield
+    with engine.begin() as connection:
+        connection.execute(statement)
 
 
 @pytest.fixture
