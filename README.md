@@ -4,7 +4,7 @@ Local-first Security Orchestration, Automation and Response (SOAR) MVP for a two
 
 ## MVP scope
 
-The planned demonstration is: Alert → Incident → Playbook → Threat Intelligence → Analyst Approval → Lab Response → Audit Log. The current backend implements authenticated generic alert ingestion, PostgreSQL persistence, one automatic incident per accepted alert, deduplication, and authenticated read endpoints. Playbooks, intelligence, approvals, containment, and frontend operations remain unimplemented.
+The demonstration flow is: Alert → Incident → Investigation → Analyst Approval → simulated Lab Response → Audit Log. Containment is exclusively a PostgreSQL-backed lab blocklist: this project never modifies host networking, iptables/nftables/UFW, Docker networking, cloud firewalls, routers, or real infrastructure.
 
 ## Stack and architecture
 
@@ -53,6 +53,8 @@ curl -X POST http://127.0.0.1:8000/api/v1/ingest/generic \
 
 curl -H "X-API-Key: $ANALYST_API_KEY" http://127.0.0.1:8000/api/v1/incidents
 ```
+
+After an investigation is completed, an analyst can propose and approve its IP; the worker persists a simulated block. Use `GET /api/v1/lab/blocklist` to view the PostgreSQL-only lab state and `POST /api/v1/response-actions/{action_id}/revert` to release that action's block.
 
 ## Verification
 

@@ -47,6 +47,27 @@ class ResponseActionSummary(BaseModel):
     execution_error: str | None
 
 
+class LabBlockEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    response_action_id: UUID
+    incident_id: UUID
+    ip_address: str
+    active: bool
+    created_at: datetime
+    deactivated_at: datetime | None
+    execution_metadata: dict[str, object]
+
+
+class LabBlocklistPage(BaseModel):
+    simulation: Literal[True] = True
+    items: list[LabBlockEntryOut]
+    page: int
+    page_size: int
+    total: int
+
+
 class ResponseActionDetail(ResponseActionSummary):
     audit_events: list[ResponseAuditEventOut]
 

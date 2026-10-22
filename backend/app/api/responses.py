@@ -5,13 +5,14 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain.responses.schemas import ResponseActionDetail, ResponseActionPage, ResponseActionSummary, ResponseDecisionIn, ResponseProposalIn
+from app.domain.responses.schemas import LabBlocklistPage, ResponseActionDetail, ResponseActionPage, ResponseActionSummary, ResponseDecisionIn, ResponseProposalIn
 from app.persistence.database import get_db
-from app.persistence.models import InvestigationExecution, ResponseAction, ResponseAuditEvent, utc_now
+from app.connectors.lab_response import LabResponseAdapter
+from app.persistence.models import InvestigationExecution, LabBlockEntry, ResponseAction, ResponseAuditEvent, utc_now
 from app.persistence.repositories.alerts import incident_by_id
 from app.persistence.repositories.responses import paged_response_actions, response_action_by_id
 from app.security.auth import require_analyst_auth
@@ -105,6 +106,28 @@ def reject_response_action(action_id: UUID, payload: ResponseDecisionIn, _: Anno
     return _decide(action_id, payload, session, "rejected")
 
 
+@router.post("/response-actions/{action_id}/revert", response_model=ResponseActionSummary)
+def revert_response_action(action_id: UUID, payload: ResponseDecisionIn, _: Annotated[None, Depends(require_analyst_auth)], session: Annotated[Session, Depends(get_db)]) -> ResponseAction:
+    action = session.scalar(select(ResponseAction).where(ResponseAction.id == action_id).with_for_update())
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="response action not found")
+    if action.status != "executed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="only an executed response action can be reverted")
+    if not LabResponseAdapter(session).unblock_ip(action.id):
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="active simulated block for this response action not found")
+    now = utc_now()
+    action.status = "reverted"
+    action.decided_by = ANALYST_ACTOR
+    action.decided_at = now
+    action.decision_reason = payload.reason
+    action.updated_at = now
+    session.add(ResponseAuditEvent(response_action_id=action.id, event_type="response_reverted", actor=ANALYST_ACTOR, from_status="executed", to_status="reverted", metadata_json={"reason_provided": payload.reason is not None, "simulation": "postgresql_lab_blocklist"}))
+    session.commit()
+    session.refresh(action)
+    return action
+
+
 @router.get("/response-actions", response_model=ResponseActionPage)
 def list_response_actions(
     _: Annotated[None, Depends(require_analyst_auth)],
@@ -123,3 +146,20 @@ def get_response_action(action_id: UUID, _: Annotated[None, Depends(require_anal
     if action is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="response action not found")
     return ResponseActionDetail(**ResponseActionSummary.model_validate(action).model_dump(), audit_events=sorted(action.audit_events, key=lambda event: (event.created_at, event.id)))
+
+
+@router.get("/lab/blocklist", response_model=LabBlocklistPage)
+def list_lab_blocklist(
+    _: Annotated[None, Depends(require_analyst_auth)],
+    session: Annotated[Session, Depends(get_db)],
+    active: bool | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> LabBlocklistPage:
+    statement = select(LabBlockEntry).order_by(LabBlockEntry.created_at.desc(), LabBlockEntry.id.desc())
+    count = select(func.count()).select_from(LabBlockEntry)
+    if active is not None:
+        statement = statement.where(LabBlockEntry.active.is_(active))
+        count = count.where(LabBlockEntry.active.is_(active))
+    entries = list(session.scalars(statement.offset((page - 1) * page_size).limit(page_size)))
+    return LabBlocklistPage(items=entries, page=page, page_size=page_size, total=int(session.scalar(count) or 0))

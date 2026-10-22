@@ -142,10 +142,15 @@ class ResponseAction(Base):
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     execution_result: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     execution_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    execution_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="response_actions")
     investigation: Mapped[InvestigationExecution | None] = relationship(back_populates="response_actions")
     audit_events: Mapped[list["ResponseAuditEvent"]] = relationship(back_populates="response_action")
+    lab_block: Mapped["LabBlockEntry | None"] = relationship(back_populates="response_action")
 
 
 class ResponseAuditEvent(Base):
@@ -162,3 +167,24 @@ class ResponseAuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     response_action: Mapped[ResponseAction] = relationship(back_populates="audit_events")
+
+
+class LabBlockEntry(Base):
+    """PostgreSQL-only simulated containment state; it never controls real networking."""
+
+    __tablename__ = "lab_block_entries"
+    __table_args__ = (
+        UniqueConstraint("response_action_id", name="uq_lab_blocks_response_action"),
+        Index("ix_lab_blocks_ip_active", "ip_address", "active"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    response_action_id: Mapped[UUID] = mapped_column(ForeignKey("response_actions.id", ondelete="RESTRICT"), nullable=False)
+    incident_id: Mapped[UUID] = mapped_column(ForeignKey("incidents.id", ondelete="RESTRICT"), nullable=False)
+    ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
+    active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_metadata: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    response_action: Mapped[ResponseAction] = relationship(back_populates="lab_block")

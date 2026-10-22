@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.connectors.abuseipdb import AbuseIPDBConnector
 from app.persistence.database import SessionLocal
 from app.workers.investigations import InvestigationProcessor
+from app.workers.responses import ResponseProcessor
 
 
 def main() -> None:
@@ -24,10 +25,12 @@ def main() -> None:
         max_attempts=settings.investigation_max_attempts,
         retry_base_seconds=settings.investigation_retry_base_seconds,
     )
+    response_processor = ResponseProcessor(SessionLocal, os.environ.get("HOSTNAME", "soar-lite-worker"), settings.response_lease_seconds, settings.response_max_attempts)
     while not stop.is_set():
         processed = asyncio.run(processor.process_once())
+        processed = response_processor.process_once() or processed
         if not processed:
-            stop.wait(timeout=settings.investigation_poll_seconds)
+            stop.wait(timeout=min(settings.investigation_poll_seconds, settings.response_poll_seconds))
 
 
 if __name__ == "__main__":

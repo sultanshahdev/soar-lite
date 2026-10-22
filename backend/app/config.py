@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     investigation_lease_seconds: int = 60
     investigation_max_attempts: int = 3
     investigation_retry_base_seconds: int = 30
+    response_poll_seconds: float = 1.0
+    response_lease_seconds: int = 60
+    response_max_attempts: int = 3
     max_alert_payload_bytes: int = 65_536
 
 
